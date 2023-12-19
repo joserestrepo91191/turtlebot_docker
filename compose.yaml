@@ -1,0 +1,14 @@
+version: '3'
+
+services: 
+  tb:
+    build: .
+    stdin_open: true 
+    tty: true
+    devices:
+      - /dev/kobuki:/dev/ttyUSB0
+    network_mode: host
+    volumes:
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+      - ./entrypoint.sh:/bin/entrypoint.sh
+    entrypoint: /bin/entrypoint.sh
