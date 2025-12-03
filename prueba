@@ -1,0 +1,87 @@
+# ==========================================================
+# 🐢 Dockerfile para Jetson Nano - ROS2 Humble + Kobuki + Ignition Gazebo
+# ==========================================================
+FROM arm64v8/ros:humble-ros-base
+
+# ----------------------------------------------------------
+# 1. Actualización base y herramientas esenciales
+# ----------------------------------------------------------
+RUN apt-get update && apt-get -y upgrade && \
+    apt-get install -y \
+        python3-pip \
+        git \
+        curl \
+        wget \
+        lsb-release \
+        gnupg \
+        x11-apps \
+        locales \
+        build-essential && \
+    pip install setuptools==58.2.0 && \
+    rm -rf /var/lib/apt/lists/*
+
+# ----------------------------------------------------------
+# 2. Configurar locale UTF-8
+# ----------------------------------------------------------
+RUN locale-gen en_US en_US.UTF-8 && \
+    update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+ENV LANG en_US.UTF-8
+
+# ----------------------------------------------------------
+# 3. Reconfigurar fuentes ROS2
+# ----------------------------------------------------------
+RUN rm -f /etc/apt/sources.list.d/ros2* && \
+    rm -f /usr/share/keyrings/ros-archive-keyring.gpg && \
+    curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+        -o /usr/share/keyrings/ros-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+        http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" \
+        > /etc/apt/sources.list.d/ros2.list
+
+# ----------------------------------------------------------
+# 4. Instalar ROS2 + Kobuki + Turtlebot2 + Ignition Gazebo (Fortress)
+# ----------------------------------------------------------
+RUN apt-get update && apt-get install -y \
+        # 🔹 ROS2 Core
+        ros-humble-rviz2 \
+        ros-humble-ament-cmake \
+        ros-humble-diagnostic-updater \
+        ros-humble-joint-state-publisher \
+        ros-humble-laser-proc \
+        ros-humble-urg-c \
+        ros-humble-urg-node-msgs \
+        ros-humble-tf-transformations \
+        ros-humble-geometry2 \
+        # 🔹 Kobuki + Turtlebot2
+        ros-humble-kobuki* \
+        ros-humble-turtlebot2* \
+        ros-humble-yocs-cmd-vel-mux \
+        ros-humble-yocs-velocity-smoother \
+        # 🔹 Ignition Gazebo (Fortress)
+        ros-humble-ros-gz-sim \
+        ros-humble-ros-gz-bridge \
+        ros-humble-ros-gz-image \
+        ros-humble-ros-gz-sim-demos && \
+    rm -rf /var/lib/apt/lists/*
+
+# ----------------------------------------------------------
+# 5. Variables de entorno ROS2 + Ignition
+# ----------------------------------------------------------
+ENV ROS_DISTRO=humble
+ENV IGNITION_VERSION=fortress
+ENV QT_X11_NO_MITSHM=1
+ENV DISPLAY=:0
+
+# ----------------------------------------------------------
+# 6. Workspace y entrypoint
+# ----------------------------------------------------------
+WORKDIR /ros2_ws
+RUN mkdir -p /ros2_ws/src
+COPY ./entrypoint.sh /bin/entrypoint.sh
+RUN chmod +x /bin/entrypoint.sh
+
+# ----------------------------------------------------------
+# 7. Entry point
+# ----------------------------------------------------------
+ENTRYPOINT ["/bin/entrypoint.sh"]
+CMD ["bash"]

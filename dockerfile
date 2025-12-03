@@ -1,5 +1,5 @@
-FROM osrf/ros:humble-desktop-full
-
+#FROM --platform=linux/arm64 osrf/ros:humble-desktop-full
+FROM arm64v8/ros:humble-ros-base
 # upgrade os and install python with setuptools
 RUN apt-get update && apt-get -y upgrade && \
   apt-get install -y python3-pip && \
@@ -14,7 +14,19 @@ RUN sudo sh -c 'echo "deb [arch=$(dpkg --print-architecture)] http://packages.ro
 && curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add -
 
 
-RUN  apt-get update && apt-get -y upgrade
+#  Limpiar posibles fuentes conflictivas de ROS2
+RUN rm -f /etc/apt/sources.list.d/ros2.list \
+    && rm -f /usr/share/keyrings/ros-archive-keyring.gpg
+
+# Usar ros2-apt-source para configurar repositorios y claves ROS2 automáticamente
+RUN apt-get update && apt-get install -y curl \
+    && export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F\" '{print $4}') \
+    && curl -L -o /tmp/ros2-apt-source.deb \
+       "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo $VERSION_CODENAME)_all.deb" \
+    && dpkg -i /tmp/ros2-apt-source.deb
+
+# Ahora sí actualizar todo el sistema
+RUN apt-get update && apt-get -y upgrade
 #installing ROS2 pkgs
 RUN apt-get install -y \
   ros-humble-ros-testing \
@@ -64,3 +76,5 @@ RUN sudo service udev restart
 
 WORKDIR /ros2_ws
 RUN /lib/systemd/systemd-udevd --daemon && udevadm control --reload-rules
+
+

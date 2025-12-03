@@ -1,0 +1,39 @@
+# --- IGNORAR BUILD/LOGS ROS2 ---
+build/
+install/
+log/
+**/build/
+**/install/
+**/log/
+
+# --- IGNORAR PYTHON ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- IGNORAR EGGS ---
+*.egg-info/
+**/*.egg-info/
+
+# --- IGNORAR CSV DE PRUEBAS ---
+*.csv
+
+# --- IGNORAR BACKUPS/ARCHIVOS TEMP ---
+*.save
+*.backup
+*~
+*.swp
+
+# --- IGNORAR DOCKER CACHE ---
+CACHED
+internal
+[internal]
+= 
+[ 
+ERROR
+
+# --- IGNORAR TODA CARPETA COMPILED ROS2 ---
+ros2host_ws/build/
+ros2host_ws/install/
+ros2host_ws/log/

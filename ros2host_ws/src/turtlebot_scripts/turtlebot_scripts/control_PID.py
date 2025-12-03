@@ -1,0 +1,358 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Nodo: pid_trajectory_node (con seguridad por bumper)
+- Usa tu PIDController (compute(error, dt)) para control lineal y angular.
+- Soporta 3 trayectorias: recta, cuadrada y compuesta (recta + 1/4 de circunferencia).
+- Publica Path en /robot_path (RViz).
+- Guarda CSV con odometría, comandos y energía (batería/corrientes/potencia).
+- Pausa por bumper (stop inmediato); mantiene logs detallados.
+"""
+
+import os
+import math
+import csv
+import time
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import (
+    QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy, QoSDurabilityPolicy
+)
+from geometry_msgs.msg import Twist, PoseStamped
+from nav_msgs.msg import Odometry, Path
+from kobuki_ros_interfaces.msg import SensorState, BumperEvent
+
+# === Usa TU controlador PID ===
+from turtlebot_scripts.pid_controller import PIDController
+
+# ===================== CONFIGURACIÓN RÁPIDA =====================
+BATTERY_VOLT_PER_UNIT = 0.1
+CURRENT_SCALE_A_PER_UNIT = 0.01
+
+LIN_MAX = 0.22 #0.44
+ANG_MAX = 2.0
+ANG_SLEW = 0.4
+DIST_REACHED = 0.01
+YAW_ENTER_ALIGN = 0.35
+YAW_EXIT_ALIGN  = 0.12
+NEAR_CORNER_DIST = 0.01
+CONTROL_DT = 0.033
+BUMPER_BACKOFF_SEC = 20.0
+
+# ====================== GENERADORES DE TRAYECTORIA ======================
+def generate_line(length=1.75, points=5):
+    xs = [i/(points-1) * length for i in range(points)]
+    ys = [0.0 for _ in range(points)]
+    cuts = [len(xs)]
+    return xs, ys, cuts
+
+def generate_square(lado=1.75, points_per_side=5):
+    # Solo 5 puntos principales (esquinas) para trayectorias fluidas
+    xs = [0.0, lado, lado, 0.0, 0.0]
+    ys = [0.0, 0.0, lado, lado, 0.0]
+    cuts = [1, 2, 3, 4, 5]
+    return xs, ys, cuts
+
+def generate_composite(length=1.75, radius=1.75, ppm=5):
+    xs, ys, cuts = [], [], []
+    n_line = max(int(ppm * length), 10)
+    for i in range(n_line):
+        xs.append(i/(n_line-1) * length); ys.append(0.0)
+    cuts.append(len(xs))
+    n_arc = max(int(ppm * (math.pi*radius/2.0)), 20)
+    cx, cy = (length, radius)
+    theta0 = -math.pi/2.0
+    theta1 = 0.0
+    for i in range(1, n_arc+1):
+        th = theta0 + (theta1 - theta0) * (i / n_arc)
+        xs.append(cx + radius * math.cos(th))
+        ys.append(cy + radius * math.sin(th))
+    cuts.append(len(xs))
+    return xs, ys, cuts
+
+# ============================ NODO ============================
+class PIDTrajectoryNode(Node):
+    def __init__(self):
+        super().__init__('pid_trajectory_node')
+
+        # ---- Parámetros ROS2 ----
+        self.declare_parameter('odom_topic', '/odom_raw')
+        self.declare_parameter('traj', 'cuadrada')
+        self.declare_parameter('lado_m', 1.75)
+        self.declare_parameter('radius_m', 1.75)
+        self.declare_parameter('points_per_side', 5)
+        self.declare_parameter('ppm', 3)
+
+        # ---- Parámetro base del CSV ----
+        self.declare_parameter('csv_name', 'pruebaZiegler')  # nombre variable
+        self.declare_parameter('csv_dir', '/ros2_ws/ros2host_ws/src/turtlebot_scripts/turtlebot_scripts/')
+
+        # ---- Genera nombre de archivo dinámico ----
+        self.traj = self.get_parameter('traj').get_parameter_value().string_value
+        csv_name = self.get_parameter('csv_name').get_parameter_value().string_value
+        csv_dir  = self.get_parameter('csv_dir').get_parameter_value().string_value
+        fecha_hora = time.strftime("%Y-%d-%m_%H-%M-%S", time.localtime(time.time() - 5*3600))
+        csv_filename = f"data_{csv_name}_{self.traj}_{fecha_hora}.csv"
+        self.csv_path = os.path.join(csv_dir, csv_filename)
+
+        # ---- Crear carpeta y archivo ----
+        os.makedirs(csv_dir, exist_ok=True)
+        self.csv_file = open(self.csv_path, 'w', newline='')
+        self.csv_writer = csv.writer(self.csv_file)
+        self.csv_writer.writerow([
+            'stamp_sec','stamp_nsec','x','y','yaw',
+            'v_cmd','w_cmd','battery_v','i_left_a','i_right_a','i_tot_a','power_w'
+        ])
+        self.get_logger().info(f"📁 Guardando datos en: {self.csv_path}")
+
+        # ---- Resto de parámetros ----
+        self.odom_topic = self.get_parameter('odom_topic').get_parameter_value().string_value
+        self.lado_m     = self.get_parameter('lado_m').get_parameter_value().double_value
+        self.radius_m   = self.get_parameter('radius_m').get_parameter_value().double_value
+        self.points_per_side = self.get_parameter('points_per_side').get_parameter_value().integer_value
+        self.ppm        = self.get_parameter('ppm').get_parameter_value().integer_value
+
+        # PID
+        self.declare_parameter('kp_lin', 2.1667)#2.4890
+        self.declare_parameter('ki_lin', 0.9925)
+        self.declare_parameter('kd_lin', 0.3413)
+        self.declare_parameter('kp_ang', 2.8203)
+        self.declare_parameter('ki_ang', 1.3131)
+        self.declare_parameter('kd_ang', 0.4370)
+        
+        """
+        --- GANANCIAS RECOMENDADAS ---
+        Modo: lineal
+        Método: Tyreus-Luyben
+        Kp = 2.1667
+        Ki = 0.9925
+        Kd = 0.3413
+
+        Modo: angular
+        Método: Tyreus-Luyben
+        Kp = 2.8203
+        Ki = 1.3131
+        Kd = 0.4370
+
+
+
+        """
+
+        kp_lin = self.get_parameter('kp_lin').get_parameter_value().double_value
+        ki_lin = self.get_parameter('ki_lin').get_parameter_value().double_value
+        kd_lin = self.get_parameter('kd_lin').get_parameter_value().double_value
+        kp_ang = self.get_parameter('kp_ang').get_parameter_value().double_value
+        ki_ang = self.get_parameter('ki_ang').get_parameter_value().double_value
+        kd_ang = self.get_parameter('kd_ang').get_parameter_value().double_value
+
+        # ---- Publicadores/Suscriptores ----
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        path_qos = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1,
+                              reliability=QoSReliabilityPolicy.RELIABLE,
+                              durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        self.path_pub = self.create_publisher(Path, '/robot_path', path_qos)
+        self.create_subscription(Odometry, self.odom_topic, self.odom_cb, 10)
+        self.create_subscription(SensorState, '/sensors/core', self.core_cb, 10)
+        self.create_subscription(BumperEvent, '/events/bumper', self.bumper_cb, 10)
+
+        # ---- PID ----
+        self.lin_pid = PIDController(kp_lin, ki_lin, kd_lin)
+        self.ang_pid = PIDController(kp_ang, ki_ang, kd_ang)
+
+        # ---- Trayectoria ----
+        if self.traj == 'recta':
+            self.wx_local, self.wy_local, self.cuts = generate_line(self.lado_m, self.points_per_side)
+        elif self.traj == 'compuesta':
+            self.wx_local, self.wy_local, self.cuts = generate_composite(self.lado_m, self.radius_m, self.ppm)
+        else:
+            self.wx_local, self.wy_local, self.cuts = generate_square(self.lado_m, self.points_per_side)
+
+        # ---- Estado ----
+        self.wx_world = None
+        self.wy_world = None
+        self.anchor_done = False
+        self.pose = None
+        self.current_idx = 0
+        self.current_seg = 1
+        self.aligning = True
+        self.corner_mode = False
+        self.corner_yaw_target = None
+        self.last_ang_cmd = 0.0
+        self.last_t_wall = time.time()
+
+        # ---- Bumper y sensores ----
+        self.paused_by_bumper = False
+        self.bumper_last_pressed = False
+        self.resume_at = 0.0
+        self.last_battery_v = float('nan')
+        self.last_i_left_a  = float('nan')
+        self.last_i_right_a = float('nan')
+
+        # ---- Path ----
+        self.odom_frame = 'odom'
+        self.path_msg = Path()
+        self.path_msg.header.frame_id = self.odom_frame
+        self.max_path_len = 4000
+
+        # ---- Timers ----
+        self.timer = self.create_timer(CONTROL_DT, self.control_loop)
+        self.path_timer = self.create_timer(0.5, self.publish_path_again)
+
+        # ---- Logs ----
+        self.get_logger().info(
+            f"PID Trajectory listo. traj={self.traj} | L={self.lado_m} | points_per_side={self.points_per_side}"
+        )
+        self.get_logger().info(f"PID lin: {kp_lin},{ki_lin},{kd_lin} | PID ang: {kp_ang},{ki_ang},{kd_ang}")
+
+    # ------------------- Callbacks y utilidades -------------------
+    def core_cb(self, msg: SensorState):
+        self.last_battery_v = float(msg.battery) * BATTERY_VOLT_PER_UNIT
+        if len(msg.current) >= 2:
+            self.last_i_left_a  = float(msg.current[0]) * CURRENT_SCALE_A_PER_UNIT
+            self.last_i_right_a = float(msg.current[1]) * CURRENT_SCALE_A_PER_UNIT
+
+    def bumper_cb(self, msg: BumperEvent):
+        pressed = (msg.state == BumperEvent.PRESSED)
+        if pressed and not self.bumper_last_pressed:
+            self.get_logger().warn("⛔ BUMPER PRESIONADO → STOP")
+            self.paused_by_bumper = True
+            self.stop_robot()
+        self.bumper_last_pressed = pressed
+
+    def odom_cb(self, msg: Odometry):
+        self.odom_frame = msg.header.frame_id or self.odom_frame
+        if not self.anchor_done:
+            x0 = msg.pose.pose.position.x
+            y0 = msg.pose.pose.position.y
+            yaw0 = self.yaw_from_quat(msg.pose.pose.orientation)
+            c, s = math.cos(yaw0), math.sin(yaw0)
+            self.wx_world = [x0 + (x*c - y*s) for x, y in zip(self.wx_local, self.wy_local)]
+            self.wy_world = [y0 + (x*s + y*c) for x, y in zip(self.wx_local, self.wy_local)]
+            self.anchor_done = True
+            self.get_logger().info(f"⚓ Trayectoria anclada ({x0:.2f},{y0:.2f}) yaw0={yaw0:.2f}")
+        self.pose = msg.pose.pose
+
+    def control_loop(self):
+        if self.paused_by_bumper or self.pose is None or not self.anchor_done:
+            return
+        now = time.time()
+        dt = max(now - getattr(self, 'last_t_wall', now), 1e-3)
+        self.last_t_wall = now
+        tx = self.wx_world[self.current_idx]
+        ty = self.wy_world[self.current_idx]
+        x, y, yaw = self.get_pose_tuple()
+        dx, dy = (tx - x), (ty - y)
+        dist_err = math.hypot(dx, dy)
+        heading_ref = math.atan2(dy, dx)
+        yaw_err = self.wrap_pi(heading_ref - yaw)
+
+        # Si el error angular inicial es pequeño, fuerza modo avance
+        if self.current_idx == 0 and abs(yaw_err) < 0.3:
+            self.aligning = False
+
+        if self.aligning:
+            if abs(yaw_err) < 0.3:
+                v = 0.1  # pequeño empuje
+            else:
+                v = 0.0
+            w = self.ang_pid.compute(yaw_err, dt)
+        else:
+            v = self.lin_pid.compute(dist_err, dt)
+            w = self.ang_pid.compute(yaw_err, dt)
+
+            # ---- DEAD-BAND BREAK (vencimiento de fricción) ----
+            # Si la velocidad calculada es positiva pero muy baja, fuerza un mínimo.
+            if dist_err > 0.20 and 0.0 < v < 0.10:
+                v = 0.10  # m/s  (valor ajustable: 0.08–0.12)
+            elif dist_err > 0.20 and -0.10 < v < 0.0:
+                v = -0.10
+
+
+        v = max(min(v, LIN_MAX), -LIN_MAX)
+        w = max(min(w, ANG_MAX), -ANG_MAX)
+        w = self.apply_slew(w, self.last_ang_cmd, ANG_SLEW)
+        self.last_ang_cmd = w
+        tw = Twist()
+        tw.linear.x = v
+        tw.angular.z = w
+        self.cmd_pub.publish(tw)
+
+        iTot = self.sum_currents()
+        power = self.mul_vi(self.last_battery_v, iTot)
+        stamp = self.get_clock().now().to_msg()
+        self.csv_writer.writerow([stamp.sec, stamp.nanosec, x, y, yaw, v, w,
+                                  self.last_battery_v, self.last_i_left_a, self.last_i_right_a,
+                                  iTot, power])
+
+        if dist_err < DIST_REACHED:
+            self.current_idx += 1
+            if self.current_idx >= len(self.wx_world):
+                self.get_logger().info("🏁 Trayectoria completada.")
+                self.stop_robot()
+                self.csv_file.flush()
+
+    def publish_path_again(self):
+        if self.path_msg is None:
+            return
+        self.path_msg.header.stamp = self.get_clock().now().to_msg()
+        for p in self.path_msg.poses:
+            p.header.stamp = self.path_msg.header.stamp
+        self.path_pub.publish(self.path_msg)
+
+    def yaw_from_quat(self, q):
+        siny_cosp = 2 * (q.w*q.z + q.x*q.y)
+        cosy_cosp = 1 - 2 * (q.y*q.y + q.z*q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
+
+    def wrap_pi(self, a): 
+        return math.atan2(math.sin(a), math.cos(a))
+
+    def apply_slew(self, new_val, last_val, max_step):
+        delta = new_val - last_val
+        if   delta >  max_step: return last_val + max_step
+        elif delta < -max_step: return last_val - max_step
+        return new_val
+
+    def get_pose_tuple(self):
+        x = self.pose.position.x
+        y = self.pose.position.y
+        yaw = self.yaw_from_quat(self.pose.orientation)
+        return (x, y, yaw)
+
+    def sum_currents(self):
+        if math.isnan(self.last_i_left_a) or math.isnan(self.last_i_right_a):
+            return float('nan')
+        return self.last_i_left_a + self.last_i_right_a
+
+    def mul_vi(self, v, i):
+        if math.isnan(v) or math.isnan(i):
+            return float('nan')
+        return v * i
+
+    def stop_robot(self):
+        self.cmd_pub.publish(Twist())
+
+    def destroy_node(self):
+        try:
+            if hasattr(self, 'csv_file') and self.csv_file:
+                self.csv_file.flush()
+                self.csv_file.close()
+        except Exception:
+            pass
+        super().destroy_node()
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = PIDTrajectoryNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        node.get_logger().info("Ctrl+C → Deteniendo robot y cerrando CSV…")
+    finally:
+        node.stop_robot()
+        node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
