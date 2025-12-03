@@ -37,17 +37,6 @@ if [ -f install/setup.bash ]; then
 fi
 
 
-# --------------------------------------------------
-# 5. (Opcional) Lanzar directamente un nodo o un launch
-#    ⚠️ Te recomiendo comentar/ajustar esta línea si quieres flexibilidad
-# --------------------------------------------------
-#ros2 launch turtlebot2_nav nav2.launch.py namespace:=tb2_5
 
-# --------------------------------------------------
-# 6. Ejecutar el comando que se pase al contenedor
-#    Ejemplo: docker exec -it turtlebot2 bash
-#    Esto asegura que se pueda entrar al bash o correr ros2 run
-# --------------------------------------------------
-#exec "$@"
 
 exec bash
