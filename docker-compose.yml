@@ -2,22 +2,22 @@ version: "3.9"
 
 services:
   turtlebot:
-    image: turtlebot_docker-tb              # usa la nueva imagen con Ignition
+    image: turtlebot_docker-tb             
     container_name: turtlebot2
-    network_mode: host                      # usa la red del host (para ROS2)
-    privileged: true                        # acceso completo a dispositivos
+    network_mode: host                      
+    privileged: true                        
     devices:
-      - "/dev/ttyUSB0:/dev/ttyUSB0"         # puerto Kobuki (si está conectado)
+      - "/dev/ttyUSB0:/dev/ttyUSB0"        
     environment:
-      - DISPLAY=${DISPLAY}                  # permite mostrar gráficos (X11)
+      - DISPLAY=${DISPLAY}                  
       - QT_X11_NO_MITSHM=1
       - LIBGL_ALWAYS_INDIRECT=0
     volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix       # socket X11 para interfaz gráfica
-      - ./ros2host_ws:/ros2_ws/ros2host_ws  # carpeta compartida host <-> contenedor
+      - /tmp/.X11-unix:/tmp/.X11-unix       
+      - ./ros2host_ws:/ros2_ws/ros2host_ws  
       - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
     working_dir: /ros2_ws
-    entrypoint: ["/bin/bash"]               # fuerza bash (evita exec format error)
+    entrypoint: ["/bin/bash"]             
     stdin_open: true
     tty: true
 
