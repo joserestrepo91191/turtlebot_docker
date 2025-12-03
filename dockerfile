@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y curl \
        "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo $VERSION_CODENAME)_all.deb" \
     && dpkg -i /tmp/ros2-apt-source.deb
 
-# Ahora sí actualizar todo el sistema
+
 RUN apt-get update && apt-get -y upgrade
 #installing ROS2 pkgs
 RUN apt-get install -y \
