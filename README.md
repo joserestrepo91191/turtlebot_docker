@@ -164,14 +164,10 @@ turtlebot_docker/
 ├── entrypoint.sh
 │
 ├── turtlebot_scripts/
-│   ├── control_PID.py
-│   ├── control_PID_v2.py
-│   ├── control_SERVO_v2.py
-│   ├── control_lyapunov.py
-│   ├── pid_cuadrado_v2.py
-│   ├── pid_autotune_node.py
+│   ├── control_PID.py #Nodo antiguo PID
+│   ├── control_PID_v2.py # Nodo funcional para este proyecto
+│   ├── control_SERVO_v2.py # Nodo funcional para este proyecto
 │   ├── open_loop_id_node.py
-│   ├── sintonizar_PID.py
 │   └── ...
 │
 ├── ros2host_ws/
