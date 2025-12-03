@@ -23,7 +23,7 @@ setup(
             'PID_cuadrado = turtlebot_scripts.PID_cuadrado:main', #profesor github carlos
             'pid_controller = turtlebot_scripts.pid_controller:main',# controlador pid
             'control_PID_v2 = turtlebot_scripts.control_PID_v2:main',#funcional actual con el que se toman las muestras
-            'open_loop_id_node = turtlebot_scripts.open_loop_id_node:main', #nodo para identificar FT del robot
+            'open_loop_id_node = turtlebot_scripts.open_loop_id_node:main', #nodo para identificar FT del robot en lazo abierto
             'control_SERVO_v2 = turtlebot_scripts.control_SERVO_v2:main', # nodo para el control servo
             'servo_controller = turtlebot_scripts.servo_controller:main'# controlador servo
         ],
