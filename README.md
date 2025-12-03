@@ -7,7 +7,7 @@ Este repositorio contiene el entorno completo de desarrollo y ejecución para el
 ##  Objetivos del proyecto
 
 - Ejecutar ROS2 Humble en un entorno aislado mediante Docker.
-- Desarrollar y probar nodos de control (PID, Servo–Integrador, Lyapunov).
+- Desarrollar y probar nodos de control (PID, Servo–Integrador).
 - Realizar identificación lineal y angular del robot mediante datos reales.
 - Capturar y almacenar registros experimentales en formato CSV.
 - Diseñar trayectorias (recta, cuadrada, compuesta) y analizarlas.
@@ -23,7 +23,6 @@ Jetson Nano
 ├── Docker Engine
 │   └── Container ROS2 Humble
 │        ├── turtlebot_scripts (nodos ROS2)
-│        ├── python_nodos
 │        ├── Rviz2 / Teleop / Control
 │        └── Comunicación con hardware Kobuki
 │
@@ -118,25 +117,11 @@ turtlebot_docker/
 - Ley discreta basada en estados previos  
 - Eliminación del error estacionario  
 
-### Trayectorias
-- `pid_cuadrado_v2.py`
-- `pid_sin_waypoints.py`
-- `go_square.py`
 
 ### Identificación
 - `open_loop_id_node.py`  
-- Modelos FOPDT / ARX  
 
-### Utilidades
-- `grafica.py`, `sintonizar_PID.py`, `ticks.py`
 
----
-
-##  Ejemplo de prueba
-
-```bash
-ros2 run turtlebot_scripts control_SERVO_v2 --ros-args -p traj:=cuadrada -p csv_name:=Test_SERVO
-```
 
 ---
 
