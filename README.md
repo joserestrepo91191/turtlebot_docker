@@ -15,6 +15,81 @@ Este repositorio contiene el entorno completo de desarrollo y ejecución para el
 
 ---
 
+##  Cómo clonar este repositorio
+
+Asegúrate de tener **git** instalado:
+
+```bash
+sudo apt update
+sudo apt install git -y
+```
+
+Clona el repositorio:
+
+```bash
+git clone https://github.com/joserestrepo91191/turtlebot_docker.git
+```
+
+Ingresa a la carpeta:
+
+```bash
+cd turtlebot_docker
+```
+
+---
+
+##  Instalación inicial de Docker (solo primera vez)
+
+### 1️ Instalar dependencias
+```bash
+sudo apt update
+sudo apt install ca-certificates curl gnupg lsb-release -y
+```
+
+### 2️ Agregar clave oficial de Docker
+```bash
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+```
+
+### 3️ Agregar repositorio de Docker
+```bash
+echo   "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg]   https://download.docker.com/linux/ubuntu   $(lsb_release -cs) stable" |   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+```
+
+### 4️ Instalar Docker Engine
+```bash
+sudo apt update
+sudo apt install docker-ce docker-ce-cli containerd.io -y
+```
+
+### 5️ Permitir Docker sin sudo
+```bash
+sudo usermod -aG docker $USER
+```
+
+Reinicia tu Jetson:
+
+```bash
+sudo reboot
+```
+
+---
+
+##  Instalación de Docker Compose (solo primera vez)
+
+```bash
+sudo apt install docker-compose -y
+```
+
+Verifica:
+
+```bash
+docker-compose --version
+```
+
+---
+
 ##  Arquitectura del Sistema
 
 ```
@@ -70,6 +145,13 @@ Control PID v2:
 ros2 run turtlebot_scripts control_PID_v2 --ros-args -p traj:=cuadrada -p csv_name:=PID_ZN_1
 ```
 
+Parámetros útiles:
+
+```
+traj: recta | cuadrada | compuesta  
+csv_name: nombre del archivo CSV generado  
+```
+
 ---
 
 ##  Organización de carpetas
@@ -117,19 +199,23 @@ turtlebot_docker/
 - Ley discreta basada en estados previos  
 - Eliminación del error estacionario  
 
-
 ### Identificación
-- `open_loop_id_node.py`  
-
-
+- open_loop_id_node.py  
 
 ---
 
-## 👤 Autor
+##  Ejemplo de prueba
 
-José Restrepo  
+```bash
+ros2 run turtlebot_scripts control_SERVO_v2 --ros-args -p traj:=cuadrada -p csv_name:=Test_SERVO
+```
+
+---
+
+##  Autor
+
+José Restrepo    
 Politécnico Colombiano Jaime Isaza Cadavid
 
 ---
-
 
